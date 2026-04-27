@@ -175,12 +175,13 @@
 			new OO.ui.FieldLayout( this.selectFileWidget, {
 				align: 'top'
 			} ),
-			new OO.ui.FieldLayout( this.ownWorkCheckbox, {
+		/*	new OO.ui.FieldLayout( this.ownWorkCheckbox, {
 				align: 'inline',
 				label: mw.msg( 'upload-form-label-own-work' ),
 				help: this.$ownWorkMessage,
 				helpInline: true
 			} ),
+		*/
 			new OO.ui.FieldLayout( this.messageLabel, {
 				align: 'top'
 			} )
@@ -216,7 +217,7 @@
 	mw.ForeignStructuredUpload.BookletLayout.prototype.onUploadFormChange = function () {
 		const file = this.selectFileWidget.getValue(),
 			ownWork = this.ownWorkCheckbox.isSelected(),
-			valid = !!file && ownWork;
+			valid = !!file; // && ownWork
 		this.emit( 'uploadValid', valid );
 	};
 
@@ -239,7 +240,8 @@
 		this.descriptionWidget = new OO.ui.MultilineTextInputWidget( {
 			required: true,
 			validate: /\S+/,
-			autosize: true
+			autosize: true,
+			value: "Image Upload"
 		} );
 		this.categoriesWidget = new mw.widgets.CategoryMultiselectWidget( {
 			// Can't be done here because we don't know the target wiki yet... done in #initialize.
