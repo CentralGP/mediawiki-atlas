@@ -1146,7 +1146,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 			}
 		}
 		if ( !$this->isSignup() && $this->showExtraInformation() ) {
-			$passwordReset = MediaWikiServices::getInstance()->getPasswordReset();
+			/*$passwordReset = MediaWikiServices::getInstance()->getPasswordReset();
 			if ( $passwordReset->isAllowed( $this->getUser() )->isGood() ) {
 				$fieldDefinitions['passwordReset'] = [
 					'type' => 'info',
@@ -1158,7 +1158,29 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 					),
 					'weight' => 230,
 				];
-			}
+			} */
+
+			$fieldDefinitions['companyLoginNotice'] = [
+				'type' => 'info',
+				'raw' => true,
+				'cssclass' => 'mw-company-login-container',
+				'default' => Html::rawElement(
+					'div',
+					[
+						'id' => 'mw-company-login-notice',
+						'class' => 'mw-ui-vform-field',
+					],
+					Html::element(
+						'p',
+						[
+							'class' => 'mw-company-login-message',
+						],
+						'Use your central login'
+					)
+				),
+				'weight' => 190,
+			];
+
 
 			// Don't show a "create account" link if the user can't.
 			if ( $this->showCreateAccountLink() ) {
