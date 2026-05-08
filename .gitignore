@@ -93,4 +93,4 @@ docker-compose.override.yml
 .env
 
 # Central Custom
-/extensions
+#/extensions
