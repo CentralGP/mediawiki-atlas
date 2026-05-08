@@ -1175,7 +1175,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 						[
 							'class' => 'mw-company-login-message',
 						],
-						'Use your central login'
+						'Use your Central Login'
 					)
 				),
 				'weight' => 190,
