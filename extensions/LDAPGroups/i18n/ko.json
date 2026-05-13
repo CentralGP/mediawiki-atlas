@@ -1,0 +1,9 @@
+{
+	"@metadata": {
+		"authors": [
+			"Suleiman the Magnificent Television",
+			"Ykhwong"
+		]
+	},
+	"ldapgroups-desc": "사용자 그룹의 LDAP 리소스 동기화를 허용합니다"
+}

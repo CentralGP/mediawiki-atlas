@@ -1,0 +1,526 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+# Restrict the default GITHUB_TOKEN to read-only for all jobs in this workflow.
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # i18n completeness — no PHP required; runs once on any ubuntu runner
+  # ---------------------------------------------------------------------------
+  i18n:
+    name: i18n completeness
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check translation completeness
+        run: bash tests/i18n-completeness.sh
+
+  # ---------------------------------------------------------------------------
+  # Unit tests — PHPUnit 10/11 requires PHP >=8.1; drop EOL 7.4/8.0 from matrix
+  # ---------------------------------------------------------------------------
+  unit:
+    name: Unit tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php:
+          - "8.1"
+          - "8.2"
+          - "8.3"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, zip, mbstring
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run unit tests
+        run: ./vendor/bin/phpunit --testsuite unit
+
+  # ---------------------------------------------------------------------------
+  # Integration tests — require Pandoc; run on current PHP only
+  # ---------------------------------------------------------------------------
+  integration:
+    name: Integration tests (Pandoc ${{ matrix.pandoc }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pandoc:
+          - "3.1.11"   # stable LTS
+          - "3.5"      # recent release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: dom, zip, mbstring
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install Pandoc ${{ matrix.pandoc }}
+        run: |
+          wget -q "https://github.com/jgm/pandoc/releases/download/${{ matrix.pandoc }}/pandoc-${{ matrix.pandoc }}-1-amd64.deb" \
+            -O /tmp/pandoc.deb
+          sudo dpkg -i /tmp/pandoc.deb
+          pandoc --version
+
+      - name: Run integration tests
+        run: ./vendor/bin/phpunit --testsuite integration
+
+  # ---------------------------------------------------------------------------
+  # MediaWiki extension tests — run against multiple MW versions
+  #
+  # A proper maintenance-script smoke test bootstraps the full MW environment
+  # and asserts:
+  #   1. Extension PHP classes are autoloadable
+  #   2. The special page instantiates without errors
+  #   3. A wiki page can be created via the MediaWiki internal API
+  # ---------------------------------------------------------------------------
+  mediawiki:
+    name: MW ${{ matrix.mw }} / PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # MW branch names use underscores (REL1_XX).
+          # PHP version is the highest supported by each MW release.
+          # MW 1.39 and 1.41 are omitted: the extension uses MediaWiki\Context\RequestContext
+          # (and MediaWiki\Html\Html), which only exist from MW 1.42 onward.
+          - { mw: "1.42", mw_branch: "REL1_42", php: "8.2" }
+          - { mw: "1.43", mw_branch: "REL1_43", php: "8.3" }
+          - { mw: "1.44", mw_branch: "REL1_44", php: "8.3" }
+          - { mw: "1.45", mw_branch: "REL1_45", php: "8.3" }
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: extensions/PandocUltimateConverter
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, zip, mbstring, intl, fileinfo
+          coverage: none
+
+      - name: Clone MediaWiki ${{ matrix.mw }}
+        run: |
+          git clone --depth 1 \
+            --branch "${{ matrix.mw_branch }}" \
+            https://github.com/wikimedia/mediawiki.git mediawiki
+
+      - name: Install MediaWiki Composer dependencies
+        run: |
+          cd mediawiki
+          # Some MW releases (e.g. 1.41) pin phpunit in require (not require-dev),
+          # so --no-dev alone does not skip the security-advisory block.
+          # The flag name changed between Composer versions:
+          #   Composer 2.2–2.5  →  --no-security-blocking
+          #   Composer 2.6+     →  --no-audit
+          # Detect which flag is available and use it.
+          if composer install --help 2>&1 | grep -q -- '--no-audit'; then
+            AUDIT_FLAG="--no-audit"
+          elif composer install --help 2>&1 | grep -q -- '--no-security-blocking'; then
+            AUDIT_FLAG="--no-security-blocking"
+          else
+            AUDIT_FLAG=""
+          fi
+          composer install --no-interaction --prefer-dist --no-dev $AUDIT_FLAG
+
+      - name: Move extension into MW tree
+        run: mv extensions/PandocUltimateConverter mediawiki/extensions/PandocUltimateConverter
+
+      - name: Install extension Composer dependencies
+        run: |
+          cd mediawiki/extensions/PandocUltimateConverter
+          composer install --no-interaction --prefer-dist
+
+      - name: Set up MediaWiki database (SQLite)
+        run: |
+          cd mediawiki
+          php maintenance/install.php \
+            --dbtype sqlite \
+            --dbpath /tmp/mwdb \
+            --server http://localhost \
+            --scriptpath "" \
+            --lang en \
+            TestWiki admin \
+            --pass adminpassword
+
+      - name: Enable PandocUltimateConverter in LocalSettings.php
+        run: |
+          echo 'wfLoadExtension("PandocUltimateConverter");' >> mediawiki/LocalSettings.php
+          echo '$wgPandocUltimateConverter_PandocExecutablePath = "pandoc";' >> mediawiki/LocalSettings.php
+
+      - name: Smoke test — classes, special page, page creation
+        run: |
+          export MW_INSTALL_PATH="${GITHUB_WORKSPACE}/mediawiki"
+          cat > /tmp/mw_smoke_test.php << 'PHPEOF'
+          <?php
+          /**
+           * CI smoke test for PandocUltimateConverter.
+           * Checks class autoloading, special-page instantiation, and page creation.
+           *
+           * Compatible with MediaWiki 1.42+ (the extension itself requires 1.42+ because
+           * it uses MediaWiki\Context\RequestContext and MediaWiki\Html\Html).
+           */
+          $IP = getenv( 'MW_INSTALL_PATH' );
+          if ( !$IP ) {
+              die( "MW_INSTALL_PATH not set\n" );
+          }
+          require_once "$IP/maintenance/Maintenance.php";
+
+          class PandocSmokeTest extends Maintenance {
+              public function __construct() {
+                  parent::__construct();
+                  $this->addDescription( 'CI smoke test for PandocUltimateConverter' );
+              }
+
+              public function execute() {
+                  $IP = getenv( 'MW_INSTALL_PATH' );
+
+                  // Load the extension's own composer autoloader so PSR-4 can find
+                  // classes in includes/processors/ (lowercase) on case-sensitive FS.
+                  $extAutoload = "$IP/extensions/PandocUltimateConverter/vendor/autoload.php";
+                  if ( file_exists( $extAutoload ) ) {
+                      require_once $extAutoload;
+                  }
+
+                  // Use MediaWikiServices::getInstance() — compatible with MW 1.35+.
+                  // Maintenance::getServiceContainer() was only added in MW 1.40.
+                  $services = \MediaWiki\MediaWikiServices::getInstance();
+
+                  // 1. Verify extension classes are autoloadable.
+                  $classes = [
+                      'MediaWiki\Extension\PandocUltimateConverter\PandocWrapper',
+                      'MediaWiki\Extension\PandocUltimateConverter\Processors\PandocTextPostprocessor',
+                  ];
+                  foreach ( $classes as $cls ) {
+                      if ( !class_exists( $cls ) ) {
+                          $this->fatalError( "MISSING: $cls" );
+                      }
+                      $this->output( "OK: $cls\n" );
+                  }
+
+                  // 2. Verify the special page is registered and instantiates without errors.
+                  $spFactory = $services->getSpecialPageFactory();
+                  if ( !$spFactory->exists( 'PandocUltimateConverter' ) ) {
+                      $this->fatalError( "Special page PandocUltimateConverter not registered" );
+                  }
+                  $sp = $spFactory->getPage( 'PandocUltimateConverter' );
+                  if ( !$sp ) {
+                      $this->fatalError( "Special page failed to instantiate" );
+                  }
+                  $this->output( "SPECIAL_PAGE_OK: " . get_class( $sp ) . "\n" );
+
+                  // 3. Create a test page via the MediaWiki internal API.
+                  //    This verifies the full MW stack (DB, content model, revision store).
+                  //
+                  // Version-safe notes:
+                  //   - \Title global alias removed in MW 1.45 → use TitleFactory service
+                  //   - UserFactory::newSystemUser() removed in MW 1.43 → use UserFactory::newFromName()
+                  //   - Maintenance::getUser() does not exist; use the 'admin' account created by install.php
+                  $title   = $services->getTitleFactory()->newFromText( 'CISmokeTestPage' );
+                  $page    = $services->getWikiPageFactory()->newFromTitle( $title );
+                  $user    = $services->getUserFactory()->newFromName( 'admin' );
+                  $updater = $page->newPageUpdater( $user );
+                  $updater->setContent(
+                      \MediaWiki\Revision\SlotRecord::MAIN,
+                      \ContentHandler::makeContent( 'Page created by CI smoke test.', $title )
+                  );
+                  $updater->saveRevision(
+                      \CommentStoreComment::newUnsavedComment( 'CI smoke test' )
+                  );
+                  if ( !$updater->wasSuccessful() ) {
+                      $this->fatalError( "Failed to create test page" );
+                  }
+                  $this->output( "PAGE_CREATED\n" );
+
+                  // 4. Verify that the HookHandler adds the Export action to the page toolbar.
+                  //    We call the hook directly with lightweight stubs so no skin rendering
+                  //    is needed.
+                  $handler = new \MediaWiki\Extension\PandocUltimateConverter\HookHandler();
+
+                  // Minimal SkinTemplate stub
+                  $sktemplate = new class {
+                      public function getRelevantTitle() {
+                          return new class {
+                              public function isSpecialPage() { return false; }
+                              public function exists()        { return true; }
+                              public function getPrefixedDBkey() { return 'CISmokeTestPage'; }
+                          };
+                      }
+                      public function msg( string $key ) {
+                          return new class( $key ) {
+                              public function __construct( private string $k ) {}
+                              public function text(): string { return $this->k; }
+                          };
+                      }
+                  };
+
+                  $links = [ 'actions' => [] ];
+                  // ShowExportInPageTools must be true for the link to be added
+                  $GLOBALS['wgPandocUltimateConverter_ShowExportInPageTools'] = true;
+                  $handler->onSkinTemplateNavigation__Universal( $sktemplate, $links );
+
+                  if ( empty( $links['actions']['pandocexport'] ) ) {
+                      $this->fatalError( "HookHandler did not add the pandocexport action to the toolbar" );
+                  }
+                  $this->output( "HOOK_EXPORT_ACTION_OK: href=" . $links['actions']['pandocexport']['href'] . "\n" );
+              }
+          }
+
+          $maintClass = PandocSmokeTest::class;
+          require_once RUN_MAINTENANCE_IF_MAIN;
+          PHPEOF
+          php /tmp/mw_smoke_test.php
+
+  # ---------------------------------------------------------------------------
+  # E2E + MediaWiki integration tests — run the full import/export pipeline
+  # inside a real MediaWiki installation for each supported MW version.
+  #
+  # This job combines the "mediawiki" smoke-test setup (real MW environment)
+  # with the "e2e" pipeline tests (Pandoc + poppler + tesseract + LibreOffice).
+  #
+  # Matrix:
+  #   MW 1.42 / PHP 8.2
+  #   MW 1.43 / PHP 8.3
+  #   MW 1.44 / PHP 8.3
+  #   MW 1.45 / PHP 8.3
+  #
+  # After the tests run, exported binary files (DOCX, ODT, PDF) are rendered
+  # to PNG screenshots using LibreOffice + pdftoppm so reviewers can see the
+  # actual visual output in the uploaded artifacts.
+  # ---------------------------------------------------------------------------
+  e2e-mw:
+    name: E2E tests (MW ${{ matrix.mw }}, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mw: "1.42", mw_branch: "REL1_42", php: "8.2" }
+          - { mw: "1.43", mw_branch: "REL1_43", php: "8.3" }
+          - { mw: "1.44", mw_branch: "REL1_44", php: "8.3" }
+          - { mw: "1.45", mw_branch: "REL1_45", php: "8.3" }
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: extensions/PandocUltimateConverter
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, zip, mbstring, intl, fileinfo, gd
+          coverage: none
+
+      - name: Clone MediaWiki ${{ matrix.mw }}
+        run: |
+          git clone --depth 1 \
+            --branch "${{ matrix.mw_branch }}" \
+            https://github.com/wikimedia/mediawiki.git mediawiki
+
+      - name: Install MediaWiki Composer dependencies
+        run: |
+          cd mediawiki
+          if composer install --help 2>&1 | grep -q -- '--no-audit'; then
+            AUDIT_FLAG="--no-audit"
+          elif composer install --help 2>&1 | grep -q -- '--no-security-blocking'; then
+            AUDIT_FLAG="--no-security-blocking"
+          else
+            AUDIT_FLAG=""
+          fi
+          composer install --no-interaction --prefer-dist --no-dev $AUDIT_FLAG
+
+      - name: Move extension into MW tree
+        run: mv extensions/PandocUltimateConverter mediawiki/extensions/PandocUltimateConverter
+
+      - name: Install extension Composer dependencies
+        run: |
+          cd mediawiki/extensions/PandocUltimateConverter
+          composer install --no-interaction --prefer-dist
+
+      - name: Install Pandoc 3.5
+        run: |
+          wget -q "https://github.com/jgm/pandoc/releases/download/3.5/pandoc-3.5-1-amd64.deb" \
+            -O /tmp/pandoc.deb
+          sudo dpkg -i /tmp/pandoc.deb
+          pandoc --version
+
+      - name: Install optional tools (poppler, tesseract, libreoffice, texlive)
+        run: |
+          sudo apt-get update -q
+          # poppler-utils               → pdftohtml, pdftotext, pdftoppm  (PDF import)
+          # tesseract-ocr               → tesseract                        (OCR import)
+          # imagemagick                 → convert                          (build scanned-PDF fixture)
+          # libreoffice                 → libreoffice --headless           (DOC import)
+          # texlive-xetex               → xelatex binary                  (PDF export)
+          # lmodern                     → lmodern.sty (Pandoc LaTeX template)
+          # texlive-fonts-recommended   → pzdr.tfm / ZapfDingbats (hyperref bookmarks)
+          # texlive-latex-recommended   → microtype, upquote, and other common packages
+          sudo apt-get install -y --no-install-recommends \
+            poppler-utils \
+            tesseract-ocr tesseract-ocr-eng \
+            imagemagick \
+            libreoffice \
+            texlive-xetex \
+            lmodern \
+            texlive-fonts-recommended \
+            texlive-latex-recommended
+
+      - name: Create artifacts directory
+        run: mkdir -p /tmp/pandoc-e2e-artifacts
+
+      - name: Run e2e tests (within MW tree)
+        env:
+          E2E_ARTIFACTS_DIR: /tmp/pandoc-e2e-artifacts
+        working-directory: mediawiki/extensions/PandocUltimateConverter
+        run: ./vendor/bin/phpunit -c phpunit-e2e.xml.dist --testdox
+
+      # -------------------------------------------------------------------
+      # Set up a real MediaWiki instance for the Playwright Web UI tests.
+      # The PHPUnit e2e tests above run against stubs; they do not need a
+      # database.  The Playwright tests hit a live HTTP server, so we
+      # bootstrap MW here (SQLite, port 8080) after the pipeline tests.
+      # -------------------------------------------------------------------
+
+      - name: Set up MediaWiki database for Playwright tests
+        run: |
+          cd mediawiki
+          php maintenance/install.php \
+            --dbtype sqlite \
+            --dbpath /tmp/mwdb-ui \
+            --server http://localhost:8080 \
+            --scriptpath "" \
+            --lang en \
+            TestWiki admin \
+            --pass adminpassword
+          echo 'wfLoadExtension("PandocUltimateConverter");' >> LocalSettings.php
+          echo '$wgPandocUltimateConverter_PandocExecutablePath = "pandoc";' >> LocalSettings.php
+          echo '$wgDebugLogFile = "/tmp/mw-debug.log";' >> LocalSettings.php
+
+      - name: Create content page for page-tools screenshot
+        run: |
+          export MW_INSTALL_PATH="${GITHUB_WORKSPACE}/mediawiki"
+          cat > /tmp/create-ui-test-page.php << 'PHPEOF'
+          <?php
+          $IP = getenv( 'MW_INSTALL_PATH' );
+          require_once "$IP/maintenance/Maintenance.php";
+          class CreateUITestPage extends Maintenance {
+              public function __construct() { parent::__construct(); }
+              public function execute() {
+                  $s   = \MediaWiki\MediaWikiServices::getInstance();
+                  $t   = $s->getTitleFactory()->newFromText( 'PandocUITestPage' );
+                  $p   = $s->getWikiPageFactory()->newFromTitle( $t );
+                  $u   = $s->getUserFactory()->newFromName( 'admin' );
+                  $upd = $p->newPageUpdater( $u );
+                  $upd->setContent(
+                      \MediaWiki\Revision\SlotRecord::MAIN,
+                      \ContentHandler::makeContent( '= UI Test Page =\n\nUsed for Web UI screenshots.', $t )
+                  );
+                  $upd->saveRevision( \CommentStoreComment::newUnsavedComment( 'UI screenshot setup' ) );
+                  $this->output( $upd->wasSuccessful() ? "PAGE_CREATED\n" : "PAGE_CREATION_FAILED\n" );
+              }
+          }
+          $maintClass = CreateUITestPage::class;
+          require_once RUN_MAINTENANCE_IF_MAIN;
+          PHPEOF
+          php /tmp/create-ui-test-page.php
+
+      - name: Start PHP built-in web server
+        run: |
+          cd mediawiki
+          php -d max_execution_time=0 -S 0.0.0.0:8080 > /tmp/php-server.log 2>&1 &
+          echo "PHP server PID: $!"
+          # Wait up to 30 s for the server to respond
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/index.php -o /dev/null; then
+              echo "Server ready after ${i}s"
+              break
+            fi
+            echo "Waiting... (${i}/30)"
+            sleep 1
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright dependencies
+        working-directory: mediawiki/extensions/PandocUltimateConverter/tests/playwright
+        run: npm ci
+
+      - name: Install Playwright Chromium browser
+        working-directory: mediawiki/extensions/PandocUltimateConverter/tests/playwright
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Playwright Web UI screenshot tests
+        if: always()
+        working-directory: mediawiki/extensions/PandocUltimateConverter/tests/playwright
+        env:
+          MW_BASE_URL: http://localhost:8080
+          MW_ADMIN_USER: admin
+          MW_ADMIN_PASS: adminpassword
+          UI_SCREENSHOTS_DIR: /tmp/pandoc-ui-screenshots
+        run: |
+          mkdir -p /tmp/pandoc-ui-screenshots
+          npx playwright test
+          echo "=== Screenshots ==="
+          ls -lh /tmp/pandoc-ui-screenshots/ || true
+
+      - name: Upload conversion artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-mw-artifacts-mw-${{ matrix.mw }}
+          path: /tmp/pandoc-e2e-artifacts/
+          if-no-files-found: warn
+
+      - name: Upload Web UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots-mw-${{ matrix.mw }}
+          path: /tmp/pandoc-ui-screenshots/
+          if-no-files-found: warn
+
+      - name: Upload extension logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-logs-mw-${{ matrix.mw }}
+          path: |
+            /tmp/php-server.log
+            /tmp/mw-debug.log
+          if-no-files-found: warn

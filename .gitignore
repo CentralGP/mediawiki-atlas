@@ -23,13 +23,18 @@ sftp-config.json
 ## Visual Studio Code
 *.vscode/
 
+#checkmk-status user
+/checkmk-status/config.php
+
 # MediaWiki install & usage
 /cache
 /logs
 /docs/coverage
 /docs/js
 /docs/latex
+/vendor/
 /images/[0-9a-f]
+/images/.htaccess
 /images/archive
 /images/cache
 /images/deleted
