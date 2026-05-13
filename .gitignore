@@ -29,7 +29,9 @@ sftp-config.json
 /docs/coverage
 /docs/js
 /docs/latex
+/vendor/
 /images/[0-9a-f]
+/images/.htaccess
 /images/archive
 /images/cache
 /images/deleted
