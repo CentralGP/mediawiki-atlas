@@ -1,79 +1,24 @@
 <?php
 declare(strict_types=1);
 
+/*
+ * index.php
+ *
+ * This page renders Checkmk status from the local cache file.
+ * It does not call the Checkmk API directly.
+ * refresh.php updates the cache on a cron schedule.
+ */
+
 $config = require '/var/www/mediawiki/checkmk-status/config.php';
 
-$checkmkBaseUrl = rtrim($config['checkmk_base_url'], '/');
-$checkmkUser = $config['checkmk_user'];
-$checkmkSecret = $config['checkmk_secret'];
 $cacheFile = $config['cache_file'];
-$cacheTtl = (int)$config['cache_ttl'];
-$timeout = (int)($config['timeout'] ?? 10);
-$maxServices = (int)($config['max_services'] ?? 100);
 $serviceDisplayNames = $config['service_display_names'] ?? [];
 
-$responseData = null;   
+$responseData = null;
 $error = '';
-$usedCache = false;
-$usedStaleCache = false;
-$httpCode = 0;
-
-$cacheDir = dirname($cacheFile);
-
-if (!is_dir($cacheDir)) {
-    mkdir($cacheDir, 0750, true);
-}
 
 function h(?string $value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
-
-function checkmkGetJson(string $url, string $authHeader, int $timeout): array {
-    $ch = curl_init($url);
-
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => [
-            $authHeader,
-            'Accept: application/json',
-        ],
-        CURLOPT_TIMEOUT => $timeout,
-    ]);
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-
-    unset($ch);
-
-    if ($response === false || $httpCode < 200 || $httpCode >= 300) {
-        throw new RuntimeException(
-            'Checkmk API request failed. HTTP code: '
-            . $httpCode
-            . '. Curl error: '
-            . ($curlError ?: 'none')
-        );
-    }
-
-    $data = json_decode((string)$response, true);
-
-    if (!is_array($data)) {
-        throw new RuntimeException('Checkmk API response was not valid JSON.');
-    }
-
-    return $data;
-}
-
-function findShowServiceUrl(array $serviceRef): ?string {
-    $links = $serviceRef['links'] ?? [];
-
-    foreach ($links as $link) {
-        if (($link['rel'] ?? '') === 'urn:com.checkmk:rels/show') {
-            return $link['href'] ?? null;
-        }
-    }
-
-    return null;
 }
 
 function stateLabel($stateRaw): string {
@@ -101,82 +46,17 @@ function stateCssClass(string $state): string {
     };
 }
 
-try {
-    if (is_readable($cacheFile) && time() - filemtime($cacheFile) < $cacheTtl) {
-        $cachedJson = file_get_contents($cacheFile);
-        $decodedCache = json_decode((string)$cachedJson, true);
+if (is_readable($cacheFile)) {
+    $cachedJson = file_get_contents($cacheFile);
+    $decodedCache = json_decode((string)$cachedJson, true);
 
-        if (is_array($decodedCache)) {
-            $responseData = $decodedCache;
-            $usedCache = true;
-        }
+    if (is_array($decodedCache)) {
+        $responseData = $decodedCache;
+    } else {
+        $error = 'Cache file exists but does not contain valid JSON.';
     }
-
-    if ($responseData === null) {
-        $authHeader = 'Authorization: Bearer '
-            . trim($checkmkUser)
-            . ' '
-            . trim($checkmkSecret);
-
-        $collectionUrl = $checkmkBaseUrl . '/domain-types/service/collections/all';
-
-        $collection = checkmkGetJson($collectionUrl, $authHeader, $timeout);
-        $serviceRefs = $collection['value'] ?? [];
-
-        $detailedServices = [];
-        $failedDetails = [];
-
-        foreach ($serviceRefs as $serviceRef) {
-            if (count($detailedServices) >= $maxServices) {
-                break;
-            }
-
-            $showUrl = findShowServiceUrl($serviceRef);
-
-            if ($showUrl === null) {
-                continue;
-            }
-
-            try {
-                $detail = checkmkGetJson($showUrl, $authHeader, $timeout);
-                $detailedServices[] = $detail;
-            } catch (Throwable $detailError) {
-                $failedDetails[] = [
-                    'service' => $serviceRef['title'] ?? $serviceRef['id'] ?? 'unknown service',
-                    'error' => $detailError->getMessage(),
-                ];
-            }
-        }
-
-        $responseData = [
-            'generated_at' => time(),
-            'source_collection_url' => $collectionUrl,
-            'total_service_refs_seen' => count($serviceRefs),
-            'total_services_rendered' => count($detailedServices),
-            'max_services' => $maxServices,
-            'failed_details' => $failedDetails,
-            'services' => $detailedServices,
-        ];
-
-        file_put_contents(
-            $cacheFile,
-            json_encode($responseData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
-            LOCK_EX
-        );
-    }
-} catch (Throwable $e) {
-    $error = $e->getMessage();
-
-    if (is_readable($cacheFile)) {
-        $cachedJson = file_get_contents($cacheFile);
-        $decodedCache = json_decode((string)$cachedJson, true);
-
-        if (is_array($decodedCache)) {
-            $responseData = $decodedCache;
-            $usedCache = true;
-            $usedStaleCache = true;
-        }
-    }
+} else {
+    $error = 'Cache file does not exist yet. Run refresh.php or wait for cron.';
 }
 
 header('Content-Type: text/html; charset=utf-8');
@@ -188,18 +68,14 @@ $serviceRegex = trim((string)($_GET['service_regex'] ?? ''));
 $problemsOnly = ($_GET['problems'] ?? '') === '1';
 
 function isSafeRegex(string $regex): bool {
-    // Avoid huge patterns.
     if ($regex === '' || strlen($regex) > 200) {
         return false;
     }
 
-    // Basic delimiter safety: we will wrap the pattern in ~...~,
-    // so do not allow unescaped ~.
     if (str_contains($regex, '~')) {
         return false;
     }
 
-    // Test that PHP accepts the regex.
     return @preg_match('~' . $regex . '~', '') !== false;
 }
 
@@ -216,7 +92,6 @@ $services = array_values(array_filter($services, function (array $service) use (
 
     $hostName = (string)($extensions['host_name'] ?? $service['host_name'] ?? '');
     $description = (string)($extensions['description'] ?? $service['description'] ?? '');
-
     $stateRaw = $extensions['state'] ?? $service['state'] ?? null;
 
     if ($problemsOnly && (string)$stateRaw === '0') {
@@ -238,8 +113,11 @@ $generatedAt = $responseData['generated_at'] ?? null;
 $failedDetails = $responseData['failed_details'] ?? [];
 $totalServiceRefsSeen = $responseData['total_service_refs_seen'] ?? 0;
 $totalServicesRendered = $responseData['total_services_rendered'] ?? count($services);
+$refreshSeconds = $responseData['refresh_seconds'] ?? 'N/A';
 
-$source = $usedCache ? 'cache' : 'live Checkmk API';
+$cacheAgeSeconds = is_readable($cacheFile)
+    ? time() - filemtime($cacheFile)
+    : null;
 
 $cacheUpdated = is_readable($cacheFile)
     ? date('Y-m-d H:i:s T', filemtime($cacheFile))
@@ -253,7 +131,7 @@ $dataGenerated = $generatedAt
 <html>
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="refresh" content="60">
+  <meta http-equiv="refresh" content="300">
   <title>Checkmk Status</title>
   <style>
     body {
@@ -264,10 +142,19 @@ $dataGenerated = $generatedAt
       color: #222;
     }
 
+    .page-title {
+    margin: 0 0 1rem 0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    }
+    
     .summary {
-      margin-bottom: 1rem;
-      font-size: 0.95rem;
-      line-height: 1.5;
+    margin-top: 1rem;
+    margin-bottom: 0;
+    padding-top: 0.75rem;
+    border-top: 1px solid #ddd;
+    font-size: 0.85rem;
+    line-height: 1.5;
     }
 
     .warning {
@@ -341,25 +228,7 @@ $dataGenerated = $generatedAt
     Error: <?= h($error ?: 'No response available') ?>
   </div>
 <?php else: ?>
-
-  <div class="summary">
-    <strong>Checkmk service status</strong><br>
-    
-    Source: <?= h($source . ($usedStaleCache ? ' - stale fallback' : '')) ?><br>
-    Data generated: <?= h($dataGenerated) ?><br>
-    Cache updated: <?= h($cacheUpdated) ?><br>
-    Page rendered: <?= h(date('Y-m-d H:i:s T')) ?><br>
-    Services visible to API user: <?= h((string)$totalServiceRefsSeen) ?><br>
-    Services rendered: <?= h((string)$totalServicesRendered) ?><br>
-    Max services limit: <?= h((string)$maxServices) ?>
-  </div>
-
-  <?php if ($usedStaleCache && $error): ?>
-    <div class="warning">
-      Using stale cached data because the latest Checkmk API refresh failed.<br>
-      <?= h($error) ?>
-    </div>
-  <?php endif; ?>
+  <h1 class="page-title">Checkmk Server Status</h1>
 
   <?php if (!empty($failedDetails)): ?>
     <div class="warning">
@@ -371,7 +240,6 @@ $dataGenerated = $generatedAt
     <thead>
       <tr>
         <th>State</th>
-        <?php //<th>Host</th> ?>
         <th>Service</th>
         <th>Last Check</th>
       </tr>
@@ -379,31 +247,44 @@ $dataGenerated = $generatedAt
     <tbody>
       <?php foreach ($services as $service): ?>
         <?php
-          $extensions = $service['extensions'] ?? [];
+            $extensions = $service['extensions'] ?? [];
 
-          //$hostName = $extensions['host_name'] ?? $service['host_name'] ?? '';
-          $description = $extensions['description'] ?? $service['description'] ?? '';
-          $displayDescription = $serviceDisplayNames[$description] ?? $description;
+            $description = $extensions['description'] ?? $service['description'] ?? '';
+            $displayDescription = $serviceDisplayNames[$description] ?? $description;
 
-          $stateRaw = $extensions['state'] ?? $service['state'] ?? null;
-          $state = stateLabel($stateRaw);
-          $stateClass = stateCssClass($state);
+            $stateRaw = $extensions['state'] ?? $service['state'] ?? null;
+            $state = stateLabel($stateRaw);
+            $stateClass = stateCssClass($state);
 
-          $lastCheckRaw = $extensions['last_check'] ?? null;
-          $lastCheck = $lastCheckRaw
-              ? date('Y-m-d H:i:s T', (int)$lastCheckRaw)
-              : 'N/A';
+            $lastCheckRaw = $extensions['last_check'] ?? null;
+            $lastCheck = $lastCheckRaw
+                ? date('Y-m-d H:i:s T', (int)$lastCheckRaw)
+                : 'N/A';
         ?>
         <tr>
-          <td class="<?= h($stateClass) ?>"><?= h($state) ?></td>
-          <?php /* <td><?= h($hostName)?></td> */ ?>
-          <td><?= h($displayDescription) ?></td>
-          <td><?= h($lastCheck) ?></td>
+            <td class="<?= h($stateClass) ?>"><?= h($state) ?></td>
+            <td><?= h($displayDescription) ?></td>
+            <td><?= h($lastCheck) ?></td>
         </tr>
       <?php endforeach; ?>
     </tbody>
   </table>
-
+    <div class="summary">
+        <?php if ($hostRegex !== '' || $serviceRegex !== '' || $problemsOnly): ?>
+          Filters:
+          <?= $hostRegex !== '' ? ' host_regex=' . h($hostRegex) : '' ?>
+          <?= $serviceRegex !== '' ? ' service_regex=' . h($serviceRegex) : '' ?>
+          <?= $problemsOnly ? ' problems=1' : '' ?>
+          <br>
+        <?php endif; ?>
+        Cache age: <?= h($cacheAgeSeconds === null ? 'N/A' : (string)$cacheAgeSeconds . ' seconds') ?><br>
+        Data generated: <?= h($dataGenerated) ?><br>
+        Cache updated: <?= h($cacheUpdated) ?><br>
+        Services visible to API user: <?= h((string)$totalServiceRefsSeen) ?><br>
+        Services rendered before page filters: <?= h((string)$totalServicesRendered) ?><br>
+        Services shown on this page: <?= h((string)count($services)) ?><br>
+        Refresh duration: <?= h((string)$refreshSeconds) ?> seconds
+    </div>
 <?php endif; ?>
 
 </body>
