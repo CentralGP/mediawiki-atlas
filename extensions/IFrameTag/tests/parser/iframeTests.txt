@@ -1,0 +1,196 @@
+!! Version 2
+# Force the test runner to ensure the extension is loaded
+!! hooks
+iframe
+!! endhooks
+
+!! test
+Don't parse an un-closed tag
+!! wikitext
+<IFrame>
+!! html
+<p>&lt;IFrame&gt;
+</p>
+!! end
+
+!! article
+MediaWiki:iframe-cfg.json
+!! text
+{"domains":["json.example.com"]}
+!! endarticle
+
+!! test
+Test basic iframe with no src
+!! wikitext
+<iframe></iframe>
+!! html
+<p><!-- No src attribute given for iframe -->
+</p>
+!! end
+
+!! test
+Test basic iframe with simple src
+!! config
+iFrameDomains=["example.com"]
+!! wikitext
+<iframe src='http://example.com/'></iframe>
+!! html
+<p><iframe src="http://example.com/"></iframe>
+</p>
+!! end
+
+!! test
+Test basic iframe with path-less source
+!! config
+iFrameDomains=["EXAMPLE.COM"]
+!! wikitext
+<iframe src='http://example.com'></iframe>
+!! html
+<p><iframe src="http://example.com"></iframe>
+</p>
+!! end
+
+!! test
+Test basic iframe simple frame and mis-matched domain
+!! config
+iFrameDomains=["example.com"]
+iFrameOnWikiConfig=false
+!! wikitext
+<iframe src='http://not.example.com'></iframe>
+!! html
+<p><!-- Invalid domain: not.example.com.  Domain should be one of example.com. -->
+<!-- No src attribute given for iframe -->
+</p>
+!! end
+
+!! test
+Test basic iframe change domain config
+!! config
+iFrameDomains=["not.example.com"]
+!! wikitext
+<iframe src='http://not.example.com'></iframe>
+!! html
+<p><iframe src="http://not.example.com"></iframe>
+</p>
+!! end
+
+!! test
+iframe config multiple domains not member
+!! config
+iFrameDomains=["1.EXAMPLE.COM","2.example.com"]
+!! wikitext
+<iframe src='http://not.example.com'></iframe>
+!! html
+<p><!-- Invalid domain: not.example.com.  Domain should be one of 1.example.com, 2.example.com, json.example.com. -->
+<!-- No src attribute given for iframe -->
+</p>
+!! end
+
+!! test
+iframe config multiple domains is member
+!! config
+iFrameDomains=["1.example.com"]
+!! wikitext
+<iframe src='http://1.example.com'></iframe>
+!! html
+<p><iframe src="http://1.example.com"></iframe>
+</p>
+!! end
+
+!! test
+iframe config from iframe-cfg.json
+!! wikitext
+<iframe src='http://json.example.com'></iframe>
+!! html
+<p><iframe src="http://json.example.com"></iframe>
+</p>
+!! end
+
+!! test
+iframe a bool present
+!! wikitext
+<iframe allowfullscreen src='http://json.example.com'></iframe>
+!! html
+<p><iframe allowfullscreen="true" src="http://json.example.com"></iframe>
+</p>
+!! end
+
+!! test
+iframe a bool true
+!! wikitext
+<iframe allowfullscreen=true src='http://json.example.com'></iframe>
+!! html
+<p><iframe allowfullscreen="true" src="http://json.example.com"></iframe>
+</p>
+!! end
+
+!! test
+iframe a bool “yes”
+!! wikitext
+<iframe allowfullscreen=yes src='http://json.example.com'></iframe>
+!! html
+<p><iframe allowfullscreen="true" src="http://json.example.com"></iframe>
+</p>
+!! end
+
+!! test
+iframe a bool false
+!! wikitext
+<iframe allowfullscreen=false src='http://json.example.com'></iframe>
+!! html
+<p><iframe src="http://json.example.com"></iframe>
+</p>
+!! end
+
+!! test
+iframe a bool “no”
+!! wikitext
+<iframe allowfullscreen="no" src='http://json.example.com'></iframe>
+!! html
+<p><iframe src="http://json.example.com"></iframe>
+</p>
+!! end
+
+!! test
+Test iframe with empty-value sandbox (implicit)
+!! config
+iFrameDomains=["example.com"]
+!! wikitext
+<iframe src='http://example.com/' sandbox></iframe>
+!! html
+<p><iframe sandbox="" src="http://example.com/"></iframe>
+</p>
+!! end
+
+!! test
+Test iframe with empty-value sandbox (explicit)
+!! config
+iFrameDomains=["example.com"]
+!! wikitext
+<iframe src='http://example.com/' sandbox=""></iframe>
+!! html
+<p><iframe sandbox="" src="http://example.com/"></iframe>
+</p>
+!! end
+
+!! test
+Test iframe with single-value sandbox
+!! config
+iFrameDomains=["example.com"]
+!! wikitext
+<iframe src='http://example.com/' sandbox="allow-scripts"></iframe>
+!! html
+<p><iframe sandbox="allow-scripts" src="http://example.com/"></iframe>
+</p>
+!! end
+
+!! test
+Test iframe with multi-value sandbox
+!! config
+iFrameDomains=["example.com"]
+!! wikitext
+<iframe src='http://example.com/' sandbox="allow-forms allow-scripts"></iframe>
+!! html
+<p><iframe sandbox="allow-forms allow-scripts" src="http://example.com/"></iframe>
+</p>
+!! end
