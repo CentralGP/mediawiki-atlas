@@ -2,12 +2,13 @@
 
 namespace MediaWiki\Extension\LDAPUserInfo;
 
-use Exception;
+use LogicException;
+use MediaWiki\Config\Config as MediaWikiConfig;
 use MediaWiki\Extension\LDAPProvider\Client;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\Status\Status;
 use MediaWiki\User\User;
-use MWException;
-use Status;
+use Throwable;
 
 class UserInfoSyncProcess {
 
@@ -19,7 +20,7 @@ class UserInfoSyncProcess {
 
 	/**
 	 *
-	 * @var \Config
+	 * @var MediaWikiConfig
 	 */
 	private $domainConfig = null;
 
@@ -44,7 +45,7 @@ class UserInfoSyncProcess {
 	/**
 	 * UserInfoSyncProcess constructor.
 	 * @param User $user
-	 * @param \Config $domainConfig
+	 * @param MediaWikiConfig $domainConfig
 	 * @param \MediaWiki\Extension\LDAPProvider\Client $client
 	 * @param array $callbackRegistry
 	 */
@@ -59,20 +60,12 @@ class UserInfoSyncProcess {
 	 * @return Status
 	 */
 	public function run() {
-		$exception = null;
 		try {
 			$this->doSync();
-		} catch ( MWException $ex ) {
-			// For some reason, Exception catch block does not catch MWException
-			$exception = $ex;
-		} catch ( Exception $ex ) {
-			$exception = $ex;
-		}
-
-		if ( $exception ) {
+		} catch ( Throwable $ex ) {
 			$logger = LoggerFactory::getInstance( 'LDAPUserInfo' );
-			$logger->error( $exception->getMessage() );
-			return Status::newFatal( $exception->getMessage() );
+			$logger->error( $ex->getMessage() );
+			return Status::newFatal( $ex->getMessage() );
 		}
 
 		return Status::newGood();
@@ -80,8 +73,7 @@ class UserInfoSyncProcess {
 
 	/**
 	 * @return bool
-	 * @throws \ConfigException
-	 * @throws MWException
+	 * @throws LogicException
 	 */
 	private function doSync() {
 		$logger = LoggerFactory::getInstance( 'LDAPUserInfo' );
@@ -102,7 +94,7 @@ class UserInfoSyncProcess {
 				// "property.gender" --> "property.*"
 				$modifierKey = preg_replace( '#^(.*?)\..*?#', '$1.*', $modifierKey );
 				if ( !isset( $modifierRegistry[$modifierKey] ) ) {
-					throw new MWException( "No factory callback set for '$modifierKey'!" );
+					throw new LogicException( "No factory callback set for '$modifierKey'!" );
 				}
 			}
 			$factoryCallback = $modifierRegistry[$modifierKey];
@@ -114,7 +106,7 @@ class UserInfoSyncProcess {
 				]
 			);
 			if ( $modifier instanceof IUserInfoModifier === false ) {
-				throw new MWException( "Object from '$origModifierKey' callback does not "
+				throw new LogicException( "Object from '$origModifierKey' callback does not "
 					. "implement `IUserInfoModifier`!" );
 			}
 

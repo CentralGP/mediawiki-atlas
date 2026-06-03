@@ -6,7 +6,7 @@ use MediaWiki\Extension\LDAPProvider\Hook\UserLoadAfterLoadFromSession;
 use MediaWiki\Extension\LDAPUserInfo\Config;
 use MediaWiki\Extension\LDAPUserInfo\UserInfoSyncProcess;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\User\Options\UserOptionsLookup;
 
 class SyncUserInfoAfterLoadSession extends UserLoadAfterLoadFromSession {
 

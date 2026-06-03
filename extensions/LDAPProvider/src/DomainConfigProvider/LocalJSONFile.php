@@ -20,9 +20,9 @@
 
 namespace MediaWiki\Extension\LDAPProvider\DomainConfigProvider;
 
-use FormatJson;
 use MediaWiki\Extension\LDAPProvider\Config;
 use MediaWiki\Extension\LDAPProvider\IDomainConfigProvider;
+use MediaWiki\Json\FormatJson;
 
 class LocalJSONFile implements IDomainConfigProvider {
 
@@ -47,7 +47,7 @@ class LocalJSONFile implements IDomainConfigProvider {
 
 		$this->configArray = FormatJson::decode( file_get_contents( $jsonFilePath ), true );
 
-		if ( $this->configArray === false || count( $this->configArray ) === 0 ) {
+		if ( $this->configArray === null || count( $this->configArray ) === 0 ) {
 			throw new ConfigException( 'ldapprovider-domain-config-invalid', $jsonFilePath );
 		}
 

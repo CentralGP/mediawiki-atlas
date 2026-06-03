@@ -1,6 +1,6 @@
 {
 	"name": "LDAPAuthentication2",
-	"version": "3.0.0-alpha",
+	"version": "3.1.0",
 	"author": [
 		"Cindy Cicalese",
 		"[https://mediawiki.org/wiki/User:MarkAHershberger Mark A. Hershberger]",
@@ -13,8 +13,11 @@
 	"AutoloadNamespaces": {
 		"MediaWiki\\Extension\\LDAPAuthentication2\\": "src/"
 	},
+	"TestAutoloadNamespaces": {
+		"MediaWiki\\Extension\\LDAPAuthentication2\\Tests\\": "tests/phpunit/"
+	},
 	"requires": {
-		"MediaWiki": ">= 1.39.0",
+		"MediaWiki": ">= 1.43.0",
 		"extensions": {
 			"LDAPProvider": "3.*",
 			"PluggableAuth": "7.*"
@@ -25,7 +28,14 @@
 			"i18n"
 		]
 	},
-	"Hooks": {},
+	"HookHandlers": {
+		"reorderLoginFields": {
+			"class": "MediaWiki\\Extension\\LDAPAuthentication2\\HookHandler\\ReorderLoginFields"
+		}
+	},
+	"Hooks": {
+		"AuthChangeFormFields": "reorderLoginFields"
+	},
 	"config_prefix": "",
 	"config": {
 		"LDAPAuthentication2AllowLocalLogin": {

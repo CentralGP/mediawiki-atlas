@@ -1,6 +1,6 @@
 {
 	"name": "PluggableAuth",
-	"version": "7.3.0",
+	"version": "7.5.0",
 	"author": [
 		"[https://www.mediawiki.org/wiki/User:Cindy.cicalese Cindy Cicalese]"
 	],
@@ -9,7 +9,7 @@
 	"type": "other",
 	"license-name": "MIT",
 	"requires": {
-		"MediaWiki": ">= 1.35.0"
+		"MediaWiki": ">= 1.40.0"
 	},
 	"AutoloadNamespaces": {
 		"MediaWiki\\Extension\\PluggableAuth\\": "includes/"
@@ -46,7 +46,8 @@
 		"main": {
 			"class": "MediaWiki\\Extension\\PluggableAuth\\PluggableAuthHooks",
 			"services": [
-				"PluggableAuthService"
+				"PluggableAuthService",
+				"UrlUtils"
 			]
 		}
 	},
@@ -58,8 +59,21 @@
 		"BeforeInitialize": "main",
 		"LocalUserCreated": "main",
 		"SpecialPage_initList": "main",
-		"LoginFormValidErrorMessages": "main"
+		"LoginFormValidErrorMessages": "main",
+		"ImgAuthBeforeStream": "main",
+		"AuthPreserveQueryParams": "main",
+		"PostLoginRedirect": "main"
 	},
+	"RestRoutes": [
+		{
+			"path": "/pluggableauth/v1/logout",
+			"method": "POST",
+			"class": "MediaWiki\\Extension\\PluggableAuth\\Rest\\LogoutHandler",
+			"services": [
+				"PluggableAuthFactory"
+			]
+		}
+	],
 	"AuthManagerAutoConfig": {
 		"primaryauth": {
 			"PluggableAuthPrimaryAuthenticationProvider": {

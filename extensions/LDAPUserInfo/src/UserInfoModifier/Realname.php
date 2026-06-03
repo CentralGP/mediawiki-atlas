@@ -3,8 +3,8 @@
 namespace MediaWiki\Extension\LDAPUserInfo\UserInfoModifier;
 
 use MediaWiki\Extension\LDAPUserInfo\IUserInfoConditionalModifier;
+use MediaWiki\Status\Status;
 use MediaWiki\User\User;
-use Status;
 
 class Realname extends Base implements IUserInfoConditionalModifier {
 

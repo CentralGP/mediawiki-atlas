@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Extension\LDAPUserInfo\UserInfoModifier;
 
-use Config;
+use MediaWiki\Config\Config;
 use MediaWiki\Extension\LDAPUserInfo\IUserInfoModifier;
 
 abstract class Base implements IUserInfoModifier {

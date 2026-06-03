@@ -1,0 +1,8 @@
+{
+	"@metadata": {
+		"authors": [
+			"Stefan2255"
+		]
+	},
+	"ldapgroups-desc": "Tillåter synkronisering av användargrupper med en LDAP-resurs"
+}
