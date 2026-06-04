@@ -3,6 +3,7 @@
 namespace MediaWiki\Extension\LDAPAuthentication2;
 
 use Exception;
+use LogicException;
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\Extension\LDAPProvider\ClientConfig;
 use MediaWiki\Extension\LDAPProvider\ClientFactory;
@@ -10,11 +11,10 @@ use MediaWiki\Extension\LDAPProvider\LDAPNoDomainConfigException as NoDomain;
 use MediaWiki\Extension\LDAPProvider\UserDomainStore;
 use MediaWiki\Extension\PluggableAuth\PluggableAuthLogin;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\Password\PasswordFactory;
 use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentity;
-use MWException;
-use PasswordFactory;
 use Wikimedia\Rdbms\ILoadBalancer;
 
 class PluggableAuth extends \MediaWiki\Extension\PluggableAuth\PluggableAuth {
@@ -143,6 +143,7 @@ class PluggableAuth extends \MediaWiki\Extension\PluggableAuth\PluggableAuth {
 	 *
 	 * @param string $username to normalize
 	 * @return string username with any normalization
+	 * @throws LogicException
 	 */
 	protected function normalizeUsername( $username ) {
 		/**
@@ -154,7 +155,7 @@ class PluggableAuth extends \MediaWiki\Extension\PluggableAuth\PluggableAuth {
 		$normalizer = $config->get( "UsernameNormalizer" );
 		if ( !empty( $normalizer ) ) {
 			if ( !is_callable( $normalizer ) ) {
-				throw new MWException(
+				throw new LogicException(
 					"The UsernameNormalizer for LDAPAuthentiation2 should be callable"
 				);
 			}
@@ -371,7 +372,12 @@ class PluggableAuth extends \MediaWiki\Extension\PluggableAuth\PluggableAuth {
 		$user = $this->userFactory->newFromName( $username );
 
 		$dbr = $this->loadBalancer->getConnection( DB_REPLICA );
-		$row = $dbr->selectRow( 'user', 'user_password', [ 'user_name' => $user->getName() ] );
+		$row = $dbr->selectRow(
+			'user',
+			'user_password',
+			[ 'user_name' => $user->getName() ],
+			__METHOD__
+		);
 		$passwordInDB = $this->passwordFactory->newFromCiphertext( $row->user_password );
 
 		return $passwordInDB->verify( $password ) ? $user : null;

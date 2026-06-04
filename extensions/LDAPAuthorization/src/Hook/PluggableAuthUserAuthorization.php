@@ -2,6 +2,7 @@
 
 namespace MediaWiki\Extension\LDAPAuthorization\Hook;
 
+use MediaWiki\Config\Config as MediaWikiConfig;
 use MediaWiki\Extension\LDAPAuthorization\Config;
 use MediaWiki\Extension\LDAPAuthorization\RequirementsChecker;
 use MediaWiki\Extension\LDAPProvider\ClientFactory;
@@ -9,13 +10,14 @@ use MediaWiki\Extension\LDAPProvider\DomainConfigFactory;
 use MediaWiki\Extension\LDAPProvider\UserDomainStore;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\User\User;
 use Psr\Log\LoggerInterface;
 
 class PluggableAuthUserAuthorization {
 
 	/**
 	 *
-	 * @var \User
+	 * @var User
 	 */
 	protected $user = null;
 
@@ -33,7 +35,7 @@ class PluggableAuthUserAuthorization {
 
 	/**
 	 *
-	 * @var \Config
+	 * @var MediaWikiConfig
 	 */
 	protected $domainConfig = null;
 
@@ -48,7 +50,7 @@ class PluggableAuthUserAuthorization {
 
 	/**
 	 *
-	 * @param \User $user
+	 * @param User $user
 	 * @param bool &$authorized
 	 */
 	public function __construct( $user, &$authorized ) {
@@ -68,7 +70,7 @@ class PluggableAuthUserAuthorization {
 
 	/**
 	 *
-	 * @param \User $user
+	 * @param User $user
 	 * @param bool &$authorized
 	 * @return bool
 	 */
@@ -159,5 +161,10 @@ class PluggableAuthUserAuthorization {
 	protected function initDomainFromSettings() {
 		$configuredDomains = DomainConfigFactory::getInstance()->getConfiguredDomains();
 		$this->domain = $configuredDomains[0];
+
+		$this->logger->debug(
+			'No domain found in session or database; falling back to first configured domain: {domain}.',
+			[ 'domain' => $this->domain ]
+		);
 	}
 }

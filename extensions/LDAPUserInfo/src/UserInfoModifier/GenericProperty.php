@@ -2,13 +2,14 @@
 
 namespace MediaWiki\Extension\LDAPUserInfo\UserInfoModifier;
 
-use ConfigException;
+use MediaWiki\Config\Config as MediaWikiConfig;
+use MediaWiki\Config\ConfigException;
 use MediaWiki\Extension\LDAPUserInfo\Config;
 use MediaWiki\Extension\LDAPUserInfo\IUserInfoConditionalModifier;
 use MediaWiki\Extension\LDAPUserInfo\IUserInfoModifier;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Status\Status;
 use MediaWiki\User\User;
-use Status;
 
 class GenericProperty extends Base implements IUserInfoConditionalModifier {
 
@@ -20,7 +21,7 @@ class GenericProperty extends Base implements IUserInfoConditionalModifier {
 
 	/**
 	 *
-	 * @param \Config $domainConfig
+	 * @param MediaWikiConfig $domainConfig
 	 * @param string $propertyName
 	 */
 	public function __construct( $domainConfig, $propertyName ) {
@@ -31,7 +32,7 @@ class GenericProperty extends Base implements IUserInfoConditionalModifier {
 	/**
 	 *
 	 * @param string $mappingKey e.g. "property.gender"
-	 * @param \Config $domainConfig
+	 * @param MediaWikiConfig $domainConfig
 	 * @return IUserInfoModifier
 	 */
 	public static function factory( $mappingKey, $domainConfig ) {

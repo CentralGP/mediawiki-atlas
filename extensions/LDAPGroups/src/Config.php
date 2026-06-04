@@ -20,7 +20,7 @@
 
 namespace MediaWiki\Extension\LDAPGroups;
 
-use GlobalVarConfig;
+use MediaWiki\Config\GlobalVarConfig;
 
 class Config extends GlobalVarConfig {
 	const DOMAINCONFIG_SECTION = 'groupsync';

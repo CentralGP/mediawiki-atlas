@@ -2,12 +2,13 @@
 
 namespace MediaWiki\Extension\LDAPProvider;
 
-use BagOStuff;
-use Config;
+use LogicException;
+use MediaWiki\Config\Config;
 use MediaWiki\Extension\LDAPProvider\Config as LDAPConfig;
 use MediaWiki\Logger\LoggerFactory;
-use MWException;
 use ObjectCache;
+use RuntimeException;
+use Wikimedia\ObjectCache\BagOStuff;
 
 class Client {
 
@@ -121,13 +122,15 @@ class Client {
 
 	/**
 	 * @return PlatformFunctionWrapper
+	 * @throws RuntimeException
 	 */
 	protected function makeNewConnection() {
 		$servers = (string)( new Serverlist( $this->config ) );
+		$this->logger->debug( 'Initializing LDAP connection to: {servers}', [ 'servers' => $servers ] );
 		$this->connection = PlatformFunctionWrapper::getConnection( $servers );
 		$this->connection->setLogger( $this->logger );
 		if ( !$this->connection ) {
-			throw new MWException( "Couldn't connect with $servers" );
+			throw new RuntimeException( "Couldn't connect with $servers" );
 		}
 		return $this->connection;
 	}
@@ -147,7 +150,7 @@ class Client {
 			);
 		}
 		foreach ( $options  as $key => $value ) {
-			$this->logger->debug( "Setting $key to $value" );
+			$this->logger->debug( 'Setting option {key} to {value}', [ 'key' => $key, 'value' => $value ] );
 			$ret = $this->connection->setOption( constant( $key ), $value );
 			if ( $ret === false ) {
 				$message = 'Cannot set option to LDAP connection!';
@@ -158,21 +161,25 @@ class Client {
 
 	/**
 	 * Start encrypted connection if so configured
+	 * @throws RuntimeException
 	 */
 	protected function maybeStartTLS() {
 		if ( $this->config->has( ClientConfig::ENC_TYPE ) ) {
 			$encType = $this->config->get( ClientConfig::ENC_TYPE );
 			if ( $encType === EncType::TLS ) {
+				$this->logger->debug( 'Starting TLS on LDAP connection.' );
 				$ret = $this->connection->startTLS();
 				if ( $ret === false ) {
-					throw new MWException( 'Could not start TLS!' );
+					throw new RuntimeException( 'Could not start TLS!' );
 				}
+				$this->logger->debug( 'TLS started successfully.' );
 			}
 		}
 	}
 
 	/**
 	 * Make sure we can bind properly
+	 * @throws RuntimeException
 	 */
 	protected function establishBinding() {
 		if ( $this->boundTo == self::BOUND_ADMIN ||
@@ -190,14 +197,21 @@ class Client {
 		}
 		$this->adminUserProvided = ( $username != null );
 
+		if ( $username !== null ) {
+			$this->logger->debug( 'Binding as admin user {username}.', [ 'username' => $username ] );
+		} else {
+			$this->logger->debug( 'Binding anonymously.' );
+		}
+
 		$ret = $this->connection->bind( $username, $password );
 		if ( $ret === false ) {
 			$error = $this->connection->error();
 			$errno = $this->connection->errno();
-			throw new MWException(
+			throw new RuntimeException(
 				"Could not bind to LDAP: ($errno) $error"
 			);
 		}
+		$this->logger->debug( 'Admin bind successful.' );
 		$this->boundTo = self::BOUND_ADMIN;
 	}
 
@@ -222,6 +236,7 @@ class Client {
 	 * @param string|null $basedn The base DN to search in
 	 * @param array $attrs list of attributes to get, default to '*'
 	 * @return array
+	 * @throws RuntimeException
 	 */
 	public function search( $match, $basedn = null, $attrs = [ "*" ] ) {
 		$this->establishBinding();
@@ -234,8 +249,9 @@ class Client {
 		$res = $this->connection->search( $basedn, $match, $attrs );
 
 		if ( !$res ) {
-			throw new MWException(
-				"Error in LDAP search: " . $this->connection->error() );
+			throw new RuntimeException(
+				"Error in LDAP search for '$match' in '$basedn': " . $this->connection->error()
+			);
 		}
 
 		$entry = $this->connection->getEntries( $res );
@@ -260,18 +276,24 @@ class Client {
 		if ( $userBaseDN === '' ) {
 			$userBaseDN = $this->config->get( ClientConfig::USER_BASE_DN );
 		}
-		return $this->cache->getWithSetCallback(
+		$cacheMiss = false;
+		$result = $this->cache->getWithSetCallback(
 			$this->cache->makeKey(
 				"ldap-provider", "user-info", $username, $userBaseDN
 			),
 			$this->cacheTime,
-			function () use ( $username ) {
-				$userInfoRequest = new UserInfoRequest(
-					$this, $this->config
-				);
+			function () use ( $username, &$cacheMiss ) {
+				$cacheMiss = true;
+				$userInfoRequest = new UserInfoRequest( $this, $this->config );
+				$userInfoRequest->setLogger( $this->logger );
 				return $userInfoRequest->getUserInfo( $username );
 			}
 		);
+		$this->logger->debug(
+			'getUserInfo for {username}: {source}',
+			[ 'username' => $username, 'source' => $cacheMiss ? 'fetched from LDAP.' : 'served from cache.' ]
+		);
+		return $result;
 	}
 
 	/**
@@ -367,11 +389,17 @@ class Client {
 		$this->init();
 		$username = $this->getSearchString( $username );
 		if ( $username === '' ) {
+			$this->logger->debug( 'User bind skipped: DN could not be resolved.' );
 			return false;
 		}
 		$res = $this->connection->bind( $username, $password );
 		if ( $res ) {
 			$this->boundTo = self::BOUND_USER;
+		} else {
+			$error = $this->connection->error();
+			$errno = $this->connection->errno();
+			$this->logger->debug( 'User bind failed for {username}: ({errno}) {error}',
+				[ 'username' => $username, 'errno' => $errno, 'error' => $error ] );
 		}
 		return $res;
 	}
@@ -380,6 +408,7 @@ class Client {
 	 * @param string $username for user
 	 * @param string $groupBaseDN for group
 	 * @return GroupList
+	 * @throws LogicException
 	 */
 	public function getUserGroups( $username, $groupBaseDN = '' ) {
 		$this->init();
@@ -387,22 +416,30 @@ class Client {
 		if ( $groupBaseDN === '' ) {
 			$groupBaseDN = $this->config->get( ClientConfig::GROUP_BASE_DN );
 		}
-		return $this->cache->getWithSetCallback(
+		$cacheMiss = false;
+		$result = $this->cache->getWithSetCallback(
 			$this->cache->makeKey(
 				"ldap-provider", "user-groups", $username, $groupBaseDN
 			),
 			$this->cacheTime,
-			function () use ( $username ) {
+			function () use ( $username, &$cacheMiss ) {
+				$cacheMiss = true;
 				$factoryCallback = $this->config->get( 'grouprequest' );
 				$request = $factoryCallback( $this, $this->config );
 
 				if ( !$request instanceof UserGroupsRequest ) {
-					throw new MWException( "Configured GroupRequest not valid" );
+					throw new LogicException( "Configured GroupRequest not valid" );
 				}
 
+				$request->setLogger( $this->logger );
 				return $request->getUserGroups( $username );
 			}
 		);
+		$this->logger->debug(
+			'getUserGroups for {username}: {source}',
+			[ 'username' => $username, 'source' => $cacheMiss ? 'fetched from LDAP.' : 'served from cache.' ]
+		);
+		return $result;
 	}
 
 	/**

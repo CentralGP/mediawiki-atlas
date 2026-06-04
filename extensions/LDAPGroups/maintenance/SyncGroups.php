@@ -2,12 +2,12 @@
 
 namespace MediaWiki\Extension\LDAPGroups\Maintenance;
 
-use GlobalVarConfig;
-use Maintenance;
+use MediaWiki\Config\GlobalVarConfig;
 use MediaWiki\Extension\LDAPGroups\GroupSyncProcess;
 use MediaWiki\Extension\LDAPProvider\ClientFactory;
 use MediaWiki\Extension\LDAPProvider\DomainConfigFactory;
 use MediaWiki\Extension\LDAPProvider\UserDomainStore;
+use MediaWiki\Maintenance\Maintenance;
 use MediaWiki\MediaWikiServices;
 
 $maintPath = ( getenv( 'MW_INSTALL_PATH' ) !== false

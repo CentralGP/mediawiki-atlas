@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Extension\LDAPGroups\Tests;
 
-use HashConfig;
+use MediaWiki\Config\HashConfig;
 use MediaWiki\Extension\LDAPGroups\GroupSyncProcess;
 use MediaWiki\User\User;
 use MediaWikiIntegrationTestCase;

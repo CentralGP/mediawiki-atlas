@@ -2,6 +2,7 @@
 
 namespace MediaWiki\Extension\LDAPGroups\Hook\UserLoadAfterLoadFromSession;
 
+use MediaWiki\Config\ConfigException;
 use MediaWiki\Extension\LDAPGroups\Config;
 use MediaWiki\Extension\LDAPGroups\GroupSyncProcess;
 use MediaWiki\Extension\LDAPProvider\Hook\UserLoadAfterLoadFromSession;
@@ -13,7 +14,7 @@ class SyncUserGroupsAfterLoadSession extends UserLoadAfterLoadFromSession {
 
 	/**
 	 * @return bool
-	 * @throws \ConfigException
+	 * @throws ConfigException
 	 */
 	protected function doSync() {
 		$process = new GroupSyncProcess(

@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Extension\LDAPProvider\Tests;
 
-use HashConfig;
+use MediaWiki\Config\HashConfig;
 use MediaWiki\Extension\LDAPProvider\UserDomainStore;
 use MediaWikiIntegrationTestCase;
 
@@ -15,10 +15,14 @@ class UserDomainStoreTest extends MediaWikiIntegrationTestCase {
 		$this->tablesUsed[] = 'ldap_domains';
 		parent::setUp();
 
-		$this->getDb()->insert( 'ldap_domains', [
-			'domain' => 'SOMEDOMAIN',
-			'user_id' => self::getTestSysop()->getUser()->getId()
-		] );
+		$this->getDb()->insert(
+			'ldap_domains',
+			[
+				'domain' => 'SOMEDOMAIN',
+				'user_id' => self::getTestSysop()->getUser()->getId()
+			],
+			__METHOD__
+		);
 	}
 
 	/**

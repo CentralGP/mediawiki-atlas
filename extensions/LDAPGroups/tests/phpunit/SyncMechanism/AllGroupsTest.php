@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Extension\LDAPGroups\Tests\SyncMechanism;
 
-use HashConfig;
+use MediaWiki\Config\HashConfig;
 use MediaWiki\Extension\LDAPGroups\SyncMechanism\AllGroups;
 use MediaWiki\Extension\LDAPProvider\GroupList;
 use MediaWikiIntegrationTestCase;
@@ -19,7 +19,7 @@ class AllGroupsTest extends MediaWikiIntegrationTestCase {
 	 * @covers MediaWiki\Extension\LDAPGroups\SyncMechanism\AllGroups::factory
 	 */
 	public function testFactory() {
-		$domainConfig = new \HashConfig( [] );
+		$domainConfig = new HashConfig( [] );
 		$logger = new NullLogger;
 		$syncMechanism = AllGroups::factory( $domainConfig, $logger );
 

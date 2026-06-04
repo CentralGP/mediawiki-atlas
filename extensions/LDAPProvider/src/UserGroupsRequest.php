@@ -2,10 +2,12 @@
 
 namespace MediaWiki\Extension\LDAPProvider;
 
-use Config;
-use MWException;
+use MediaWiki\Config\Config;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
-abstract class UserGroupsRequest {
+abstract class UserGroupsRequest implements LoggerAwareInterface {
 
 	/**
 	 * @var Client
@@ -23,6 +25,11 @@ abstract class UserGroupsRequest {
 	protected $groupBaseDN = '';
 
 	/**
+	 * @var LoggerInterface
+	 */
+	protected $logger = null;
+
+	/**
 	 * @param Client $ldapClient to use
 	 * @param Config $config will be delivered here
 	 */
@@ -30,6 +37,15 @@ abstract class UserGroupsRequest {
 		$this->ldapClient = $ldapClient;
 		$this->config = $config;
 		$this->groupBaseDN = $config->get( ClientConfig::GROUP_BASE_DN );
+		$this->logger = new NullLogger();
+	}
+
+	/**
+	 * @param LoggerInterface $logger
+	 * @return void
+	 */
+	public function setLogger( LoggerInterface $logger ): void {
+		$this->logger = $logger;
 	}
 
 	/**
@@ -37,7 +53,6 @@ abstract class UserGroupsRequest {
 	 * @param Client $ldapClient The client to be used
 	 * @param Config $config The config to be used
 	 * @return UserGroupsRequest
-	 * @throws MWException
 	 */
 	public static function factory( $ldapClient, Config $config ) {
 		$request = new static( $ldapClient, $config );

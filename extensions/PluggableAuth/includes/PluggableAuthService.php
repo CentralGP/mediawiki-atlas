@@ -21,20 +21,21 @@
 
 namespace MediaWiki\Extension\PluggableAuth;
 
-use ExtensionRegistry;
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Extension\PluggableAuth\Group\GroupProcessorRunner;
+use MediaWiki\Output\OutputPage;
 use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Registration\ExtensionRegistry;
+use MediaWiki\Request\WebRequest;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentityValue;
 use MWException;
-use OutputPage;
 use Psr\Log\LoggerInterface;
-use SpecialPage;
-use Title;
-use User;
-use WebRequest;
+use RuntimeException;
 
 class PluggableAuthService {
 
@@ -155,17 +156,14 @@ class PluggableAuthService {
 		array &$formDescriptor
 	): void {
 		foreach ( $this->pluggableAuthFactory->getConfig() as $name => $config ) {
-			if ( isset( $config['weight'] ) ) {
-				$weight = $config['weight'];
-			} else {
-				$weight = 101;
-			}
 			if ( isset( $formDescriptor[$name] ) ) {
+				$weight = $config['weight'] ?? ( $formDescriptor[$name]['weight'] ?? 101 );
 				$formDescriptor[$name]['weight'] = $weight;
 			}
 			$extraLoginFields = $config['spec']['class']::getExtraLoginFields();
 			foreach ( $extraLoginFields as $fieldname => $field ) {
 				if ( isset( $formDescriptor[$fieldname] ) ) {
+					$weight = $config['weight'] ?? ( $formDescriptor[$fieldname]['weight'] ?? 101 );
 					$formDescriptor[$fieldname]['weight'] = $weight;
 				}
 			}
@@ -211,19 +209,9 @@ class PluggableAuthService {
 		User $user,
 		WebRequest $request
 	) {
-		if ( !$this->enableAutoLogin ) {
+		if ( !$this->shouldRedirectToLogin( $title, $user ) ) {
 			return;
 		}
-		if ( !$out->getUser()->isAnon() ) {
-			return;
-		}
-
-		if ( !$this->permissionManager->isEveryoneAllowed( 'read' ) &&
-			$this->permissionManager->userCan( 'read', $user, $title )
-		) {
-			return;
-		}
-
 		foreach ( $this->loginSpecialPages as $page ) {
 			if ( $title->isSpecial( $page ) ) {
 				return;
@@ -242,6 +230,42 @@ class PluggableAuthService {
 			throw new MWException( "Could not determine URL for Special:Userlogin" );
 		}
 		exit;
+	}
+
+	/**
+	 * @param Title $title
+	 * @param User $user
+	 * @param string $url
+	 * @return void
+	 */
+	public function autoLoginOnImgAuth( Title $title, User $user, string $url ) {
+		if ( !$this->shouldRedirectToLogin( $title, $user ) ) {
+			return;
+		}
+		$title = SpecialPage::getTitleFor( 'Userlogin' );
+		$url = $title->getFullURL( [
+			'returntourl' => $url,
+			// Flag
+			'auth_for' => 'img_auth'
+		] );
+		if ( $url ) {
+			header( 'Location: ' . $url );
+		} else {
+			throw new RuntimeException( "Could not determine URL for Special:Userlogin" );
+		}
+		exit;
+	}
+
+	/**
+	 * @param Title $title
+	 * @param User $user
+	 * @return bool
+	 */
+	private function shouldRedirectToLogin( Title $title, User $user ): bool {
+		return $this->enableAutoLogin &&
+			!$user->isRegistered() &&
+			!$this->permissionManager->isEveryoneAllowed( 'read' ) &&
+			!$this->permissionManager->userCan( 'read', $user, $title );
 	}
 
 	/**
