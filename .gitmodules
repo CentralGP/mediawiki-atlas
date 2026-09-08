@@ -148,8 +148,8 @@
 	branch = REL1_43
 [submodule "vendor"]
 	path = vendor
-	url = https://gerrit.wikimedia.org/r/mediawiki/vendor
-	branch = REL1_43
+	url = https://github.com/CentralGP/mediawiki-atlas-vendor.git
+	branch = cgp-atlas-dev
 [submodule "extensions/OAuth"]
 	path = extensions/OAuth
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth
