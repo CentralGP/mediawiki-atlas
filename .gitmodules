@@ -148,5 +148,5 @@
 	branch = REL1_43
 [submodule "vendor"]
 	path = vendor
-	url = git@github.com:CentralGP/mediawiki-atlas-vendor.git
+	url = https://github.com/CentralGP/mediawiki-atlas-vendor.git
 	branch = cgp-atlas-prd
